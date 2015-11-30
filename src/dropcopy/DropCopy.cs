@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using Newtonsoft.Json;
+using System.Web.Script.Serialization;
 
 namespace dropcopy
 {
@@ -18,6 +18,8 @@ namespace dropcopy
 
   public class DropCopy
   {
+    static readonly string[] sTokens = new string[] { "\":", "{", "}", "\"", "," };
+
     private readonly string sourceRelative;
     private readonly string destination;
 
@@ -88,23 +90,47 @@ namespace dropcopy
       Environment.Exit((int)code);
     }
 
+    private static string ParseViaTokens(string filepath)
+    {
+      var data = File.ReadAllText(filepath)
+          .Split(sTokens, StringSplitOptions.RemoveEmptyEntries)
+          .Select(t => t.Trim())
+          .Where(t => !string.IsNullOrWhiteSpace(t) && !t.Equals(":"))
+          .ToList();
+
+      var index = data.IndexOf("personal");
+      if (index < 0)
+      {
+        index = data.IndexOf("business");
+      }
+
+      index = data.IndexOf("path", index);
+      return data[index + 1];
+    }
+
+    private static string ParseViaSerializer(string filepath)
+    {
+      var jss = new JavaScriptSerializer();
+      var info = jss.Deserialize<Dictionary<string, dynamic>>(File.ReadAllText(filepath));
+
+      dynamic dropbox;
+      if (!info.TryGetValue("personal", out dropbox))
+      {
+        dropbox = info["business"];
+      }
+
+      return dropbox["path"];
+    }
+
     private static string ParseJson(string filepath)
     {
       try
       {
-        dynamic json = JsonConvert.DeserializeObject(File.ReadAllText(filepath));
-
-        dynamic value = json.personal;
-        if (value == null)
-        {
-          value = json.business;
-        }
-
-        return value.path.ToString();
+        return ParseViaSerializer(filepath);
       }
       catch (Exception ex)
       {
-        Console.Error.WriteLine("Unable to parse json because {0}", ex.Message);
+        Console.Error.WriteLine(ex);
         Exit(DropCopyErrorCode.JsonParseError);
       }
 
